@@ -9,6 +9,14 @@ require("dotenv").config();
 const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
+const admin = require("firebase-admin");
+
+const firebaseApp = admin.initializeApp({
+  credential: admin.credential.cert(
+    require(process.env.GOOGLE_APPLICATION_CREDENTIALS)
+  ),
+  databaseURL: `https://${process.env.PROJECT_ID}-default-rtdb.firebaseio.com`,
+});
 
 const server = http.createServer(app);
 const onlineUsers = new Map(); // user_id → socket.id
@@ -53,6 +61,13 @@ pool.on("connect", () => {
 
 // send notification function
 
+async function getGroupNameFromFirebase(groupId) {
+  const ref = admin.database().ref(`groups/${groupId}/GroupDetails/name`);
+  const snapshot = await ref.once("value");
+  return snapshot.val(); // returns "test 1234"
+}
+
+
 async function sendFcmNotification(targetUserId, messageContent,groupId) {
   try {
     const result = await pool.query(
@@ -66,26 +81,29 @@ async function sendFcmNotification(targetUserId, messageContent,groupId) {
       return;
     }
 
+    const grpName = await getGroupNameFromFirebase(groupId) || "Group Chat";
+
+
     const client = await auth.getClient();
     const accessToken = await client.getAccessToken();
 
     const url = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
     
 
-   const notificationPayload = {
+    const notificationPayload = {
       message: {
         token,
         notification: {
-          title: "New Message",
+          title: `New message in ${grpName}`,
           body: messageContent,
         },
         data: {
-          title: "New Message",
+          title: `New message in ${grpName}`,
           body: messageContent,
-          click_action: "FLUTTER_NOTIFICATION_CLICK",
-          group_id: String(groupId), // ✅ Include group_id here
-        }
-      }
+          group_id: String(groupId),
+          click_action: "FLUTTER_NOTIFICATION_CLICK"
+        },
+      },
     };
 
 
