@@ -119,6 +119,54 @@ async function sendFcmNotification(targetUserId, messageContent,groupId) {
   }
 }
 
+async function sendAlertNotification(targetUserId,groupId,userName,grpName) {
+  try {
+    const result = await pool.query(
+      `SELECT token FROM fcm_tokens WHERE user_id = $1 LIMIT 1`,
+      [targetUserId]
+    );
+
+    const token = result.rows[0]?.token;
+    if (!token) {
+      console.warn(`⚠️ No FCM token for user ${targetUserId}`);
+      return;
+    }
+
+
+    const client = await auth.getClient();
+    const accessToken = await client.getAccessToken();
+
+    const url = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
+    
+
+    const notificationPayload = {
+      message: {
+        token,
+        notification: {
+          title: `Alert from ${userName} of the ${grpName}`,
+          body: "",
+        },
+        data: {
+          title: `Alert from ${userName} of the ${grpName}`,
+          body: "",
+          group_id: String(groupId),
+          click_action: "FLUTTER_NOTIFICATION_CLICK"
+        },
+      },
+    };
+
+
+    const response = await axios.post(url, notificationPayload, {
+      headers: {
+        Authorization: `Bearer ${accessToken.token}`,
+        "Content-Type": "application/json",
+      },
+    });
+    console.log("📤 Push notification sent:");
+  } catch (error) {
+    console.error("❌ Failed to send FCM notification:", error);
+  }
+}
 // Get messages for a group
 app.get("/message/:grp_id", async (req, res) => {
   try {
@@ -133,6 +181,42 @@ app.get("/message/:grp_id", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch messages" });
   }
 });
+
+//post alert
+
+app.post('/showAlert',async(req,res)=>{
+  try {
+    const {userName,userId,grpName,grpId} = req.body;
+    if (!userId || !userName || !grpName || !grpId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required information",
+      });
+    }
+
+    const groupUsers = await pool.query(
+  `SELECT DISTINCT user_id
+FROM messages
+WHERE group_id = $1`,
+  [grpId]
+);
+
+for (const row of groupUsers.rows) {
+  const recipientId = row.user_id;
+
+  // Don't notify the sender
+  if (recipientId === userId) continue;
+
+  // Send push to offline user
+  await sendAlertNotification(recipientId, grpId,userName,grpName);
+}
+
+
+  } catch (error) {
+    console.error("❌ Error in POST /alert:", error);
+    res.status(500).json({ error: "Failed to post alert" });
+  }
+})
 
 //save fcm logic
 
